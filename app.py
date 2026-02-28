@@ -72,16 +72,7 @@ def run_ytdlp(args):
             stdout = ""
             stderr = "yt-dlp not found"
         return FakeResult()
-
-    # Extra args to help bypass YouTube bot detection on servers
-    bypass_args = [
-        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "--add-header", "Accept-Language:en-US,en;q=0.9",
-        "--sleep-interval", "1",
-        "--max-sleep-interval", "3",
-    ]
-
-    cmd = YTDLP_CMD + bypass_args + args
+    cmd = YTDLP_CMD + args
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     return result
 
@@ -178,54 +169,28 @@ def stream_audio(video_id):
 
 @app.route("/api/download/<video_id>")
 def download_audio(video_id):
-    """Download audio as MP3 and serve it."""
-    cache_file = CACHE_DIR / f"{video_id}.mp3"
-
-    # Serve from cache if exists
-    if cache_file.exists():
-        return send_file(
-            cache_file,
-            mimetype="audio/mpeg",
-            as_attachment=True,
-            download_name=f"{video_id}.mp3"
-        )
-
+    """Get a direct audio URL and redirect browser to it for instant download."""
     try:
-        title_result = run_ytdlp([
-            f"https://www.youtube.com/watch?v={video_id}",
-            "--get-title",
-            "--no-playlist",
-            "--quiet",
-        ])
-        title = sanitize_filename(title_result.stdout.strip() or video_id)
-        output_path = CACHE_DIR / f"{video_id}.%(ext)s"
-
         result = run_ytdlp([
             f"https://www.youtube.com/watch?v={video_id}",
-            "-x",
-            "--audio-format", "mp3",
-            "--audio-quality", "192K",
-            "-o", str(output_path),
+            "--get-url",
+            "-f", "bestaudio[ext=m4a]/bestaudio/best",
             "--no-playlist",
             "--quiet",
             "--no-warnings",
         ])
 
-        if result.returncode != 0:
-            return jsonify({"error": "Download failed", "detail": result.stderr}), 500
+        if result.returncode != 0 or not result.stdout.strip():
+            return jsonify({"error": "Could not get audio URL", "detail": result.stderr}), 500
 
-        if cache_file.exists():
-            return send_file(
-                cache_file,
-                mimetype="audio/mpeg",
-                as_attachment=True,
-                download_name=f"{title}.mp3"
-            )
-        else:
-            return jsonify({"error": "File not found after download"}), 500
+        stream_url = result.stdout.strip().split("\n")[0]
+        # Return the URL so the frontend can open it directly
+        return jsonify({"download_url": stream_url, "video_id": video_id})
 
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Timed out getting audio URL"}), 504
     except FileNotFoundError:
-        return jsonify({"error": "yt-dlp not installed. Run: pip install yt-dlp"}), 500
+        return jsonify({"error": "yt-dlp not installed"}), 500
 
 
 @app.route("/api/info/<video_id>")
