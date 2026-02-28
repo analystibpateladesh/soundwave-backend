@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["ffmpeg", "python311"]
+
+[phases.install]
+cmds = ["pip install flask flask-cors yt-dlp"]
+
+[start]
+cmd = "python app.py"
